@@ -7,22 +7,20 @@ class Graph:
         #nodes contain all roads from themselves
         self.nodes = {}
         self.places = {}
+        self.placesByID = {}
     
     def add_node(self, nodeID):
         self.nodes.update({nodeID: {}})
 
-    def add_edge(self, ID1, ID2, weight):
-        if ID1 in self.nodes:
-            self.nodes[ID1].update({ID2: weight})
-        else:
-            self.add_node(ID1)
-            self.nodes[ID1].update({ID2: weight})
-        
-        if ID2 in self.nodes:
-            self.nodes[ID2].update({ID1: weight})
-        else:
-            self.add_node(ID2)
-            self.nodes[ID2].update({ID1: weight})
+    def add_edge(self, ID1, ID2, weight, desc):
+        if ID1 not in self.nodes:
+            self.nodes[ID1] = {}
+        if ID2 not in self.nodes:
+            self.nodes[ID2] = {}
+
+        self.nodes[ID1][ID2] = (weight, desc)
+        self.nodes[ID2][ID1] = (weight, desc)
+
 
 
     def gen(self, placesFile, roadsFile):
@@ -36,82 +34,107 @@ class Graph:
             for line in file:
                 line = line.strip()
                 values = line.split(',')
-                self.places.update({values[1]: values[0]})     
+                place_id = int(values[0])
+                place_name = values[1]
+
+                self.places[place_name] = place_id
+                self.placesByID[place_id] = place_name    
 
         with open(roadsFile, 'r') as file:
             for line in file:
                 line = line.strip()
                 values = line.split(",")
-                #weight multiplied by 100 so it can be int
-                self.add_edge(float(values[0]), float(values[1]), float(values[2]))
 
-    #TODO: implement Dijsktras
+                ID1 = int(values[0])
+                ID2 = int(values[1])
+                dist = float(values[2])
+                desc = values[3] if len(values) > 3 else ""
+                self.add_edge(ID1, ID2, dist, desc)
+
     def getPath(self, srcName, destName):
         srcID = int(self.places.get(srcName))
         destID = int(self.places.get(destName))
 
-        pq = []
-        dist = [sys.maxsize] * len(self.nodes)
+        # distance and parent dictionaries
+        dist = {node: sys.maxsize for node in self.nodes}
         parent = {node: None for node in self.nodes}
-        
-        dist[self.getIndex(srcID)] = 0
-        heapq.heappush(pq, (0, srcID))
+
+        dist[srcID] = 0
+        pq = [(0, srcID)]   # (distance, nodeID)
 
         while pq:
             d, u = heapq.heappop(pq)
+
             if d > dist[u]:
                 continue
 
-            for v, w in self.nodes.get(u).items():
-                new_dist = dist[self.getIndex(u)] + w
-                if new_dist < dist[int(v)]:
-                    dist[v] = new_dist
+            for v, (w, desc) in self.nodes[u].items():
+                newdist = dist[u] + w
+                if newdist < dist[v]:
+                    dist[v] = newdist
                     parent[v] = u
-                    heapq.heappush(pq, (new_dist, v))
-        
+                    heapq.heappush(pq, (newdist, v))
+
+        if dist[destID] == sys.maxsize:
+            return None, dist, parent
+
+        # reconstruct path
         path = []
         node = destID
         while node is not None:
             path.append(node)
             node = parent[node]
-        path.reverse()
 
-        return path, dist, parent
-
-        """
-        while pq:
-            d, u = heapq.heappop(pq)
-
-            if d > dist[u]:
-                continue
-
-            print(self.nodes.get(u))
-            for v, w in self.nodes.get(u).items():
-                if dist[u] + float(w) < dist[self.getIndex(v)]:
-                    dist[v] = dist[u] + w
-                    heapq.heappush(pq, (dist[v], v))
-        print(dist[5])
-        """
-
-    
-    def getIndex(self, target):
-        """
-        input: node ID
-        return: index of node in places and dist
-        """
-        index = 0
-        for ID in self.nodes:
-            if target == int(ID):
-                return index
-            index+=1
+        return list(reversed(path)), dist, parent
 
 
+    def input(self):
+        # loop until valid source is entered
+        while True:
+            src = input("Enter starting location: ").strip()
+            if src in self.places:
+                break
+            print(f"Unknown place '{src}'. Try again.")
 
-        
+        # loop until valid destination is entered
+        while True:
+            dest = input("Enter destination location: ").strip()
+            if dest in self.places:
+                break
+            print(f"Unknown place '{dest}'. Try again.")
 
+        print("\nCalculating shortest path...\n")
 
+        # run dijkstra
+        path, dist, parent = self.getPath(src, dest)
 
+        if path is None:
+             print(f"No possible path exists between {src} and {dest}.")
+             return None
+        # print the path nicely
+        print("Shortest Path:")
+        total = 0
 
+        for i in range(len(path) - 1):
+            u = path[i]
+            v = path[i+1]
+
+            name_u = self.placesByID.get(u, f"Unnamed({u})")
+            name_v = self.placesByID.get(v, f"Unnamed({v})")
+
+            w, desc = self.nodes[u][v]
+            if not desc:
+                desc = "No description"
+
+            print(f"{u} ({name_u}) -> {v} ({name_v}), {desc}, {w}")
+            total += w
+
+        print(f"\nTotal distance: {total}")
+        print(f"Path (IDs): {path}\n")
+
+        return path
+
+#Depracated
 class UnitTest:
     """
     Usage: Create Unittest Object, use methods to run test
@@ -134,7 +157,7 @@ class UnitTest:
             for line in file:
                 line = line.strip()
                 values = line.split(",")
-                self.roadList.append([float(values[0]), float(values[1]), float(values[2])])
+                self.roadList.append([int(values[0]), int(values[1]), float(values[2])])
 
     def ranRouteCheck(self, n=5):
         """
@@ -165,19 +188,8 @@ def main():
 
     graph = Graph()
     graph.gen("USRoads/Place.txt", "USRoads/Road.txt")
-    path, dist, parent = graph.getPath("ALBRIDGEPORT", "MDWASHINGTON GROVE")
+    graph.input()
 
-    print("Path:", path)
-    print("Detailed steps:")
-    total = 0
-    for i in range(len(path) - 1):
-        u = path[i]
-        v = path[i+1]
-        w = graph[u][v]
-        print(f"{u} -> {v} (weight {w})")
-        total += w
-
-    print("Total distance:", total)
 
 
 if __name__ == "__main__":
